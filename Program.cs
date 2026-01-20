@@ -11,78 +11,79 @@ namespace PrintCalc {
     public class Form1 : Form {
         private CheckedListBox clbFiles;
         private Label lblTotal;
-        private TextBox txtPhone;
-        private DateTimePicker dtStart;
+        private string watchPath = "";
+        private FileSystemWatcher watcher;
         private Dictionary<string, double> filePrices = new Dictionary<string, double>();
-        private string downloadPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
 
         public Form1() {
-            this.Text = "Ape Kade Pro - Search & Select Print";
-            this.Size = new Size(700, 800);
-            this.BackColor = Color.FromArgb(25, 25, 25);
+            this.Text = "Ape Kade Pro - WhatsApp Live Sync";
+            this.Size = new Size(650, 750);
+            this.BackColor = Color.FromArgb(20, 20, 20);
             this.ForeColor = Color.White;
-            this.StartPosition = FormStartPosition.CenterScreen;
 
-            // Search Panel
-            Panel pnlHeader = new Panel() { Dock = DockStyle.Top, Height = 180, BackColor = Color.FromArgb(40, 40, 40), Padding = new Padding(15) };
-            
-            pnlHeader.Controls.Add(new Label() { Text = "Phone (Last 3):", Location = new Point(20, 25), Width = 120 });
-            txtPhone = new TextBox() { Location = new Point(150, 25), Width = 100, BackColor = Color.Black, ForeColor = Color.Yellow, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
-            
-            pnlHeader.Controls.Add(new Label() { Text = "Select Date:", Location = new Point(20, 65), Width = 120 });
-            dtStart = new DateTimePicker() { Location = new Point(150, 65), Width = 150, Format = DateTimePickerFormat.Short };
-
-            Button btnSearch = new Button() { Text = "FIND CUSTOMER FILES", Location = new Point(150, 110), Size = new Size(250, 40), BackColor = Color.FromArgb(0, 122, 204), FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9, FontStyle.Bold) };
-            btnSearch.Click += SearchFiles;
-
-            pnlHeader.Controls.AddRange(new Control[] { txtPhone, dtStart, btnSearch });
+            // Step 1: Folder Selection Header
+            Panel pnlHeader = new Panel() { Dock = DockStyle.Top, Height = 100, BackColor = Color.FromArgb(40, 40, 40) };
+            Button btnSelectFolder = new Button() { 
+                Text = "Step 1: Select WhatsApp Download Folder", 
+                Size = new Size(350, 40), Location = new Point(20, 30), 
+                BackColor = Color.FromArgb(0, 150, 136), FlatStyle = FlatStyle.Flat 
+            };
+            btnSelectFolder.Click += SelectFolder;
+            pnlHeader.Controls.Add(btnSelectFolder);
             this.Controls.Add(pnlHeader);
 
-            // Selectable List
-            Label lblInstr = new Label() { Text = "Print karanna ona files select karanna:", Dock = DockStyle.Top, Height = 30, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Color.Gray };
-            this.Controls.Add(lblInstr);
-
-            clbFiles = new CheckedListBox() { Dock = DockStyle.Fill, BackColor = Color.Black, ForeColor = Color.Lime, BorderStyle = BorderStyle.None, Font = new Font("Consolas", 10), CheckOnClick = true };
+            // Step 2: List of Files
+            clbFiles = new CheckedListBox() { 
+                Dock = DockStyle.Fill, BackColor = Color.Black, ForeColor = Color.Lime, 
+                BorderStyle = BorderStyle.None, Font = new Font("Consolas", 10), CheckOnClick = true 
+            };
             clbFiles.ItemCheck += (s, e) => BeginInvoke(new Action(CalculateTotal));
             this.Controls.Add(clbFiles);
 
-            // Bottom Total
-            lblTotal = new Label() { Text = "Total: Rs. 0", Font = new Font("Segoe UI", 36, FontStyle.Bold), Dock = DockStyle.Bottom, Height = 120, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.Yellow, BackColor = Color.FromArgb(35, 35, 35) };
+            // Step 3: Bill Display
+            lblTotal = new Label() { 
+                Text = "Bill: Rs. 0", Font = new Font("Segoe UI", 36, FontStyle.Bold), 
+                Dock = DockStyle.Bottom, Height = 100, TextAlign = ContentAlignment.MiddleCenter, 
+                ForeColor = Color.Yellow, BackColor = Color.FromArgb(30, 30, 30) 
+            };
             this.Controls.Add(lblTotal);
         }
 
-        private void SearchFiles(object sender, EventArgs e) {
-            clbFiles.Items.Clear();
-            filePrices.Clear();
-            string phone = txtPhone.Text.Trim();
-            
-            if (!Directory.Exists(downloadPath)) return;
-
-            var files = Directory.GetFiles(downloadPath)
-                .Select(f => new FileInfo(f))
-                .Where(f => f.CreationTime.Date == dtStart.Value.Date)
-                .Where(f => string.IsNullOrEmpty(phone) || f.Name.Contains(phone))
-                .OrderByDescending(f => f.CreationTime)
-                .ToList();
-
-            foreach (var file in files) {
-                double price = GetFilePrice(file.FullName);
-                string itemText = $"{file.Name} -> Rs.{price}";
-                clbFiles.Items.Add(itemText, true); // Default okkoma select wela enne
-                filePrices[itemText] = price;
+        private void SelectFolder(object sender, EventArgs e) {
+            using (FolderBrowserDialog fbd = new FolderBrowserDialog()) {
+                if (fbd.ShowDialog() == DialogResult.OK) {
+                    watchPath = fbd.SelectedPath;
+                    StartWatching();
+                    MessageBox.Show("Syncing Started! Dan WhatsApp eke file ekak download unama methanata auto eyi.");
+                }
             }
-            CalculateTotal();
         }
 
-        private double GetFilePrice(string path) {
+        private void StartWatching() {
+            if (watcher != null) watcher.Dispose();
+            watcher = new FileSystemWatcher(watchPath);
+            watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite;
+            watcher.Created += (s, e) => {
+                System.Threading.Thread.Sleep(2000); // File eka save wenna welawa denawa
+                this.Invoke(new Action(() => AddFileToList(e.FullPath)));
+            };
+            watcher.EnableRaisingEvents = true;
+        }
+
+        private void AddFileToList(string path) {
             try {
                 int p = 1; string ext = Path.GetExtension(path).ToLower();
                 if (ext == ".pdf") p = GetPdfPages(path);
                 else if (ext == ".docx" || ext == ".doc") { Document d = new Document(path); p = d.PageCount; }
                 else if (ext == ".xlsx" || ext == ".xls") { Workbook w = new Workbook(); w.LoadFromFile(path); p = w.Worksheets.Count; }
                 
-                return ((p / 2) * 15) + ((p % 2) * 10);
-            } catch { return 10; } // Error unoth default Rs.10
+                double price = ((p / 2) * 15) + ((p % 2) * 10);
+                string itemText = $"[{DateTime.Now:HH:mm}] {Path.GetFileName(path)} -> Rs.{price}";
+                clbFiles.Items.Insert(0, itemText); // Aluth file eka udatama enawa
+                clbFiles.SetItemChecked(0, true);
+                filePrices[itemText] = price;
+                CalculateTotal();
+            } catch { }
         }
 
         private void CalculateTotal() {
@@ -90,7 +91,7 @@ namespace PrintCalc {
             foreach (var item in clbFiles.CheckedItems) {
                 if (filePrices.ContainsKey(item.ToString())) total += filePrices[item.ToString()];
             }
-            lblTotal.Text = $"Total: Rs. {total}";
+            lblTotal.Text = $"Bill: Rs. {total}";
         }
 
         static int GetPdfPages(string path) {
