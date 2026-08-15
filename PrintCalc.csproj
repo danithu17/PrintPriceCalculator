@@ -9,8 +9,4 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="FreeSpire.Doc" Version="12.2.0" />
-    <PackageReference Include="FreeSpire.XLS" Version="14.2.0" />
-  </ItemGroup>
 </Project>
