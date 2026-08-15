@@ -42,7 +42,7 @@ namespace PrintCalc
             ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"
         };
 
-        private static readonly string AppVersion = "1.2.0";
+        private static readonly string AppVersion = "1.2.1";
 
         public Form1()
         {
@@ -62,7 +62,6 @@ namespace PrintCalc
 
         private void CatchStartupErrors()
         {
-            // Keep startup resilient: folders may not exist yet and WhatsApp may be closed.
             try { RefreshWhatsAppFiles(); } catch (Exception ex) { LogError(ex); }
         }
 
@@ -71,24 +70,10 @@ namespace PrintCalc
             Controls.Clear();
 
             var header = new Panel { Dock = DockStyle.Top, Height = 88, BackColor = Color.FromArgb(22, 31, 46) };
-            var title = new Label
-            {
-                Text = "PrintDesk",
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI Semibold", 24F, FontStyle.Bold),
-                AutoSize = true,
-                Location = new Point(22, 12)
-            };
+            var title = new Label { Text = "PrintDesk", ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 24F, FontStyle.Bold), AutoSize = true, Location = new Point(22, 12) };
             header.Controls.Add(title);
 
-            var subtitle = new Label
-            {
-                Text = "WhatsApp PDFs & photos → fast shop billing",
-                ForeColor = Color.FromArgb(191, 204, 222),
-                Font = new Font("Segoe UI", 10F),
-                AutoSize = true,
-                Location = new Point(25, 52)
-            };
+            var subtitle = new Label { Text = "WhatsApp PDFs & photos → fast shop billing", ForeColor = Color.FromArgb(191, 204, 222), Font = new Font("Segoe UI", 10F), AutoSize = true, Location = new Point(25, 52) };
             header.Controls.Add(subtitle);
 
             statusLabel.Text = "● Starting…";
@@ -198,13 +183,7 @@ namespace PrintCalc
             totalLabel.AutoSize = true;
             bottom.Controls.Add(totalLabel);
 
-            var rule = new Label
-            {
-                Text = "Duplex: odd PDF page count +1 blank side → 2 pages = Rs.15",
-                ForeColor = Color.FromArgb(182, 194, 211),
-                AutoSize = true,
-                Location = new Point(710, 48)
-            };
+            var rule = new Label { Text = "Duplex: odd PDF page count +1 blank side → 2 pages = Rs.15", ForeColor = Color.FromArgb(182, 194, 211), AutoSize = true, Location = new Point(710, 48) };
             bottom.Controls.Add(rule);
             Controls.Add(bottom);
 
@@ -217,24 +196,12 @@ namespace PrintCalc
 
         private static void AddText(Control parent, string text, int x, int y)
         {
-            parent.Controls.Add(new Label
-            {
-                Text = text, AutoSize = true,
-                ForeColor = Color.FromArgb(111, 122, 139),
-                Font = new Font("Segoe UI Semibold", 8F, FontStyle.Bold),
-                Location = new Point(x, y)
-            });
+            parent.Controls.Add(new Label { Text = text, AutoSize = true, ForeColor = Color.FromArgb(111, 122, 139), Font = new Font("Segoe UI Semibold", 8F, FontStyle.Bold), Location = new Point(x, y) });
         }
 
         private static Button ButtonStyle(string text, int x, int y, int width, Color back, Color fore)
         {
-            return new Button
-            {
-                Text = text, Location = new Point(x, y), Width = width, Height = 36,
-                FlatStyle = FlatStyle.Flat, BackColor = back, ForeColor = fore,
-                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold), Cursor = Cursors.Hand,
-                FlatAppearance = { BorderSize = 0 }
-            };
+            return new Button { Text = text, Location = new Point(x, y), Width = width, Height = 36, FlatStyle = FlatStyle.Flat, BackColor = back, ForeColor = fore, Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold), Cursor = Cursors.Hand, FlatAppearance = { BorderSize = 0 } };
         }
 
         private void StartWhatsAppWatcher()
@@ -251,12 +218,7 @@ namespace PrintCalc
                 }
 
                 watcher?.Dispose();
-                watcher = new FileSystemWatcher(transfers, "*.*")
-                {
-                    IncludeSubdirectories = true,
-                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime,
-                    EnableRaisingEvents = true
-                };
+                watcher = new FileSystemWatcher(transfers, "*.*") { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime, EnableRaisingEvents = true };
                 watcher.Created += (_, e) => QueueAdd(e.FullPath);
                 watcher.Renamed += (_, e) => QueueAdd(e.FullPath);
 
@@ -275,10 +237,7 @@ namespace PrintCalc
 
         private static string? FindWhatsAppTransfers()
         {
-            string sessions = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Packages", "5319275A.WhatsAppDesktop_cv1g1gvanyjgm", "LocalState", "sessions");
-
+            string sessions = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages", "5319275A.WhatsAppDesktop_cv1g1gvanyjgm", "LocalState", "sessions");
             try
             {
                 if (!Directory.Exists(sessions)) return null;
@@ -293,7 +252,7 @@ namespace PrintCalc
 
         private static DateTime SafeCreation(string path)
         {
-            try { return Directory.GetCreationTimeUtc(path); } catch { return DateTime.MinValue; }
+            try { return File.GetCreationTimeUtc(path); } catch { return DateTime.MinValue; }
         }
 
         private void QueueAdd(string path)
@@ -330,12 +289,7 @@ namespace PrintCalc
 
         private void AddFilesDialog()
         {
-            using var dialog = new OpenFileDialog
-            {
-                Title = "Add PDF or photo files",
-                Multiselect = true,
-                Filter = "Print files|*.pdf;*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif|PDF|*.pdf|Images|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif"
-            };
+            using var dialog = new OpenFileDialog { Title = "Add PDF or photo files", Multiselect = true, Filter = "Print files|*.pdf;*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif|PDF|*.pdf|Images|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif" };
             if (dialog.ShowDialog() != DialogResult.OK) return;
             foreach (var path in dialog.FileNames) AddFile(path);
         }
@@ -355,10 +309,7 @@ namespace PrintCalc
 
         private void RebuildList(string? selectPath = null)
         {
-            var checkedPaths = fileList.Items.Cast<ListViewItem>()
-                .Where(x => x.Checked && x.Tag is string)
-                .Select(x => (string)x.Tag!).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
+            var checkedPaths = fileList.Items.Cast<ListViewItem>().Where(x => x.Checked && x.Tag is string).Select(x => (string)x.Tag!).ToHashSet(StringComparer.OrdinalIgnoreCase);
             fileList.BeginUpdate();
             fileList.Items.Clear();
             string query = searchBox.Text.Trim();
@@ -398,53 +349,45 @@ namespace PrintCalc
                 selected++;
                 total += PriceFor(item.Pages) * copies.Value;
             }
-            selectionLabel.Text = $"{selected} selected • {items.Count} files loaded";
+            selectionLabel.Text = $"{selected} selected • {items.Count} files";
             totalLabel.Text = $"TOTAL  Rs. {total:N2}";
-        }
-
-        private IEnumerable<string> SelectedPaths() => fileList.Items.Cast<ListViewItem>()
-            .Where(x => x.Checked && x.Tag is string)
-            .Select(x => (string)x.Tag!);
-
-        private void OpenSelected()
-        {
-            string? path = SelectedPaths().FirstOrDefault();
-            if (path == null) return;
-            try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
-            catch (Exception ex) { LogError(ex); MessageBox.Show(this, "Could not open the selected file.", "PrintDesk", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-        }
-
-        private void PrintSelected()
-        {
-            foreach (string path in SelectedPaths())
-            {
-                try
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = path,
-                        Verb = "print",
-                        UseShellExecute = true,
-                        CreateNoWindow = true,
-                        WindowStyle = ProcessWindowStyle.Hidden
-                    });
-                }
-                catch (Exception ex) { LogError(ex); }
-            }
         }
 
         private void RemoveSelected()
         {
-            foreach (string path in SelectedPaths().ToList()) items.Remove(path);
+            var paths = fileList.Items.Cast<ListViewItem>().Where(x => x.Selected || x.Checked).Select(x => x.Tag as string).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            foreach (var path in paths) items.Remove(path!);
             RebuildList();
         }
 
-        private int CountPdfPages(string path)
+        private void OpenSelected()
+        {
+            var path = fileList.SelectedItems.Cast<ListViewItem>().Select(x => x.Tag as string).FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+            try { Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true }); } catch (Exception ex) { LogError(ex); }
+        }
+
+        private void PrintSelected()
+        {
+            foreach (var path in fileList.SelectedItems.Cast<ListViewItem>().Select(x => x.Tag as string).Where(x => !string.IsNullOrWhiteSpace(x)))
+            {
+                try { Process.Start(new ProcessStartInfo { FileName = path!, Verb = "print", UseShellExecute = true }); } catch (Exception ex) { LogError(ex); }
+            }
+        }
+
+        private static IEnumerable<string> SafeEnumerateFiles(string root)
+        {
+            try { return Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories).Where(IsSupported).OrderByDescending(SafeCreation).Take(250).ToArray(); }
+            catch { return Array.Empty<string>(); }
+        }
+
+        private static int CountPdfPages(string path)
         {
             using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new StreamReader(stream);
             string text = reader.ReadToEnd();
-            return Math.Max(1, Regex.Matches(text, @"/Type\s*/Page\b").Count);
+            int count = Regex.Matches(text, @"/Type\s*/Page\b").Count;
+            return Math.Max(1, count);
         }
 
         private void SaveSettings()
@@ -452,12 +395,7 @@ namespace PrintCalc
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
-                var sb = new StringBuilder();
-                sb.AppendLine($"Mode={(mode.SelectedIndex == 1 ? "Duplex" : "Simplex")}");
-                sb.AppendLine($"Copies={copies.Value}");
-                sb.AppendLine($"Simplex={simplexRate.Value}");
-                sb.AppendLine($"Duplex={duplexRate.Value}");
-                File.WriteAllText(settingsPath, sb.ToString());
+                File.WriteAllLines(settingsPath, new[] { $"Mode={(mode.SelectedIndex == 1 ? "Duplex" : "Simplex")}", $"Copies={copies.Value}", $"Simplex={simplexRate.Value}", $"Duplex={duplexRate.Value}" });
             }
             catch { }
         }
@@ -488,11 +426,6 @@ namespace PrintCalc
                 File.AppendAllText(log, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {ex}\r\n");
             }
             catch { }
-        }
-
-        private static DateTime SafeCreation(string path)
-        {
-            try { return File.GetCreationTimeUtc(path); } catch { return DateTime.MinValue; }
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
