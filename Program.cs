@@ -1,104 +1,182 @@
 using System;
-using System.IO;
-using System.Drawing;
-using System.Windows.Forms;
-using System.Linq;
 using System.Collections.Generic;
-using Spire.Doc;
-using Spire.Xls;
+using System.Drawing;
+using System.IO;
+using System.Text.RegularExpressions;
+using System.Windows.Forms;
 
-namespace PrintCalc {
-    public class Form1 : Form {
-        private CheckedListBox clbFiles;
-        private Label lblTotal;
-        private string watchPath = "";
-        private FileSystemWatcher watcher;
-        private Dictionary<string, double> filePrices = new Dictionary<string, double>();
+namespace PrintCalc
+{
+    public class Form1 : Form
+    {
+        private readonly CheckedListBox files = new();
+        private readonly Label totalLabel = new();
+        private readonly NumericUpDown simplexRate = new();
+        private readonly NumericUpDown duplexRate = new();
+        private readonly NumericUpDown copies = new();
+        private readonly ComboBox mode = new();
+        private FileSystemWatcher? watcher;
+        private readonly Dictionary<string, decimal> prices = new();
 
-        public Form1() {
-            this.Text = "Ape Kade Pro - WhatsApp Live Sync";
-            this.Size = new Size(650, 750);
-            this.BackColor = Color.FromArgb(20, 20, 20);
-            this.ForeColor = Color.White;
+        public Form1()
+        {
+            Text = "Shop Print Price Calculator";
+            Width = 760;
+            Height = 720;
+            StartPosition = FormStartPosition.CenterScreen;
 
-            // Step 1: Folder Selection Header
-            Panel pnlHeader = new Panel() { Dock = DockStyle.Top, Height = 100, BackColor = Color.FromArgb(40, 40, 40) };
-            Button btnSelectFolder = new Button() { 
-                Text = "Step 1: Select WhatsApp Download Folder", 
-                Size = new Size(350, 40), Location = new Point(20, 30), 
-                BackColor = Color.FromArgb(0, 150, 136), FlatStyle = FlatStyle.Flat 
+            var top = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                Height = 150,
+                Padding = new Padding(10),
+                AutoSize = false
             };
-            btnSelectFolder.Click += SelectFolder;
-            pnlHeader.Controls.Add(btnSelectFolder);
-            this.Controls.Add(pnlHeader);
 
-            // Step 2: List of Files
-            clbFiles = new CheckedListBox() { 
-                Dock = DockStyle.Fill, BackColor = Color.Black, ForeColor = Color.Lime, 
-                BorderStyle = BorderStyle.None, Font = new Font("Consolas", 10), CheckOnClick = true 
-            };
-            clbFiles.ItemCheck += (s, e) => BeginInvoke(new Action(CalculateTotal));
-            this.Controls.Add(clbFiles);
+            var folderButton = new Button { Text = "Select WhatsApp PDF Folder", Width = 210, Height = 35 };
+            folderButton.Click += (_, _) => SelectFolder();
+            top.Controls.Add(folderButton);
 
-            // Step 3: Bill Display
-            lblTotal = new Label() { 
-                Text = "Bill: Rs. 0", Font = new Font("Segoe UI", 36, FontStyle.Bold), 
-                Dock = DockStyle.Bottom, Height = 100, TextAlign = ContentAlignment.MiddleCenter, 
-                ForeColor = Color.Yellow, BackColor = Color.FromArgb(30, 30, 30) 
-            };
-            this.Controls.Add(lblTotal);
+            top.Controls.Add(new Label { Text = "Mode", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
+            mode.Items.AddRange(new object[] { "Simplex", "Duplex" });
+            mode.SelectedIndex = 0;
+            mode.Width = 100;
+            top.Controls.Add(mode);
+
+            top.Controls.Add(new Label { Text = "Copies", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
+            copies.Minimum = 1;
+            copies.Maximum = 9999;
+            copies.Value = 1;
+            copies.Width = 70;
+            top.Controls.Add(copies);
+
+            top.Controls.Add(new Label { Text = "Simplex Rs.", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
+            simplexRate.Minimum = 0;
+            simplexRate.Maximum = 100000;
+            simplexRate.Value = 10;
+            simplexRate.Width = 70;
+            top.Controls.Add(simplexRate);
+
+            top.Controls.Add(new Label { Text = "Duplex Rs.", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
+            duplexRate.Minimum = 0;
+            duplexRate.Maximum = 100000;
+            duplexRate.Value = 15;
+            duplexRate.Width = 70;
+            top.Controls.Add(duplexRate);
+
+            var addPdf = new Button { Text = "Add PDF", Width = 100, Height = 35 };
+            addPdf.Click += (_, _) => AddPdfFromDialog();
+            top.Controls.Add(addPdf);
+
+            foreach (var control in new Control[] { mode, copies, simplexRate, duplexRate })
+                control.TextChanged += (_, _) => Recalculate();
+            copies.ValueChanged += (_, _) => Recalculate();
+            mode.SelectedIndexChanged += (_, _) => Recalculate();
+
+            files.Dock = DockStyle.Fill;
+            files.CheckOnClick = true;
+            files.HorizontalScrollbar = true;
+            files.ItemCheck += (_, e) => BeginInvoke(new Action(Recalculate));
+
+            totalLabel.Dock = DockStyle.Bottom;
+            totalLabel.Height = 90;
+            totalLabel.Text = "Total: Rs. 0";
+            totalLabel.TextAlign = ContentAlignment.MiddleCenter;
+            totalLabel.Font = new Font("Segoe UI", 28, FontStyle.Bold);
+
+            Controls.Add(files);
+            Controls.Add(totalLabel);
+            Controls.Add(top);
         }
 
-        private void SelectFolder(object sender, EventArgs e) {
-            using (FolderBrowserDialog fbd = new FolderBrowserDialog()) {
-                if (fbd.ShowDialog() == DialogResult.OK) {
-                    watchPath = fbd.SelectedPath;
-                    StartWatching();
-                    MessageBox.Show("Syncing Started! Dan WhatsApp eke file ekak download unama methanata auto eyi.");
+        private void SelectFolder()
+        {
+            using var dialog = new FolderBrowserDialog { Description = "Select the folder where WhatsApp Desktop saves PDFs" };
+            if (dialog.ShowDialog() != DialogResult.OK) return;
+
+            watcher?.Dispose();
+            watcher = new FileSystemWatcher(dialog.SelectedPath, "*.pdf")
+            {
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
+                EnableRaisingEvents = true
+            };
+            watcher.Created += (_, e) => BeginInvoke(new Action(() => AddFile(e.FullPath)));
+            watcher.Renamed += (_, e) => BeginInvoke(new Action(() => AddFile(e.FullPath)));
+            MessageBox.Show("Watching started. New PDF files in this folder will be added automatically.");
+        }
+
+        private void AddPdfFromDialog()
+        {
+            using var dialog = new OpenFileDialog { Filter = "PDF files (*.pdf)|*.pdf", Multiselect = true };
+            if (dialog.ShowDialog() != DialogResult.OK) return;
+            foreach (var file in dialog.FileNames) AddFile(file);
+        }
+
+        private void AddFile(string path)
+        {
+            if (!File.Exists(path) || Path.GetExtension(path).ToLowerInvariant() != ".pdf") return;
+            try
+            {
+                for (int i = 0; i < 10; i++)
+                {
+                    try
+                    {
+                        using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        int pages = CountPdfPages(stream);
+                        string key = $"{Path.GetFileName(path)} | {pages} pages";
+                        if (!prices.ContainsKey(key))
+                        {
+                            files.Items.Insert(0, key);
+                            files.SetItemChecked(0, true);
+                            prices[key] = 0;
+                            UpdateItemPrice(key, pages);
+                        }
+                        return;
+                    }
+                    catch { System.Threading.Thread.Sleep(300); }
                 }
             }
+            catch { }
         }
 
-        private void StartWatching() {
-            if (watcher != null) watcher.Dispose();
-            watcher = new FileSystemWatcher(watchPath);
-            watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite;
-            watcher.Created += (s, e) => {
-                System.Threading.Thread.Sleep(2000); // File eka save wenna welawa denawa
-                this.Invoke(new Action(() => AddFileToList(e.FullPath)));
-            };
-            watcher.EnableRaisingEvents = true;
+        private void UpdateItemPrice(string key, int pages)
+        {
+            decimal rate = mode.SelectedIndex == 1 ? duplexRate.Value : simplexRate.Value;
+            decimal price = pages * copies.Value * rate;
+            prices[key] = price;
+            Recalculate();
         }
 
-        private void AddFileToList(string path) {
-            try {
-                int p = 1; string ext = Path.GetExtension(path).ToLower();
-                if (ext == ".pdf") p = GetPdfPages(path);
-                else if (ext == ".docx" || ext == ".doc") { Document d = new Document(path); p = d.PageCount; }
-                else if (ext == ".xlsx" || ext == ".xls") { Workbook w = new Workbook(); w.LoadFromFile(path); p = w.Worksheets.Count; }
-                
-                double price = ((p / 2) * 15) + ((p % 2) * 10);
-                string itemText = $"[{DateTime.Now:HH:mm}] {Path.GetFileName(path)} -> Rs.{price}";
-                clbFiles.Items.Insert(0, itemText); // Aluth file eka udatama enawa
-                clbFiles.SetItemChecked(0, true);
-                filePrices[itemText] = price;
-                CalculateTotal();
-            } catch { }
-        }
-
-        private void CalculateTotal() {
-            double total = 0;
-            foreach (var item in clbFiles.CheckedItems) {
-                if (filePrices.ContainsKey(item.ToString())) total += filePrices[item.ToString()];
+        private void Recalculate()
+        {
+            decimal total = 0;
+            var rate = mode.SelectedIndex == 1 ? duplexRate.Value : simplexRate.Value;
+            for (int i = 0; i < files.Items.Count; i++)
+            {
+                string key = files.Items[i].ToString() ?? "";
+                var match = Regex.Match(key, @"\|\s*(\d+)\s+pages$");
+                if (!match.Success) continue;
+                int pages = int.Parse(match.Groups[1].Value);
+                decimal price = pages * copies.Value * rate;
+                prices[key] = price;
+                if (files.GetItemChecked(i)) total += price;
             }
-            lblTotal.Text = $"Bill: Rs. {total}";
+            totalLabel.Text = $"Total: Rs. {total:N2}";
         }
 
-        static int GetPdfPages(string path) {
-            using StreamReader sr = new StreamReader(path);
-            return System.Text.RegularExpressions.Regex.Matches(sr.ReadToEnd(), @"/Type\s*/Page[^s]").Count;
+        private static int CountPdfPages(Stream stream)
+        {
+            using var reader = new StreamReader(stream);
+            string text = reader.ReadToEnd();
+            int count = Regex.Matches(text, @"/Type\s*/Page\b").Count;
+            return Math.Max(1, count);
         }
 
-        [STAThread] static void Main() { Application.EnableVisualStyles(); Application.Run(new Form1()); }
+        [STAThread]
+        public static void Main()
+        {
+            ApplicationConfiguration.Initialize();
+            Application.Run(new Form1());
+        }
     }
 }
