@@ -1,6 +1,6 @@
 #define MyAppName "PrintDesk"
 #ifndef AppVersion
-  #define AppVersion "1.2.0"
+  #define AppVersion "1.2.1"
 #endif
 #define MyAppPublisher "PrintDesk"
 #define MyAppExeName "PrintCalc.exe"
