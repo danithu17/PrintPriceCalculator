@@ -26,7 +26,7 @@ namespace PrintCalc
             var top = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 150,
+                Height = 180,
                 Padding = new Padding(10),
                 AutoSize = false
             };
@@ -48,14 +48,14 @@ namespace PrintCalc
             copies.Width = 70;
             top.Controls.Add(copies);
 
-            top.Controls.Add(new Label { Text = "Simplex Rs.", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
+            top.Controls.Add(new Label { Text = "Simplex Rs./page", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
             simplexRate.Minimum = 0;
             simplexRate.Maximum = 100000;
             simplexRate.Value = 10;
             simplexRate.Width = 70;
             top.Controls.Add(simplexRate);
 
-            top.Controls.Add(new Label { Text = "Duplex / 2 Pages Rs.", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
+            top.Controls.Add(new Label { Text = "Duplex Rs./sheet (2 pages)", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
             duplexRate.Minimum = 0;
             duplexRate.Maximum = 100000;
             duplexRate.Value = 15;
@@ -65,6 +65,14 @@ namespace PrintCalc
             var addPdf = new Button { Text = "Add PDF", Width = 100, Height = 35 };
             addPdf.Click += (_, _) => AddPdfFromDialog();
             top.Controls.Add(addPdf);
+
+            var help = new Label
+            {
+                Text = "Duplex rule: 1-2 pages = Rs.15, 3-4 pages = Rs.30, 5-6 pages = Rs.45",
+                AutoSize = true,
+                Padding = new Padding(10, 8, 0, 0)
+            };
+            top.Controls.Add(help);
 
             mode.SelectedIndexChanged += (_, _) => Recalculate();
             copies.ValueChanged += (_, _) => Recalculate();
@@ -171,15 +179,16 @@ namespace PrintCalc
                 int pages = int.Parse(match.Groups[1].Value);
                 decimal pricePerCopy;
 
-                if (mode.SelectedIndex == 1) // Duplex: 2 PDF pages = 1 sheet = Rs.15
+                if (mode.SelectedIndex == 1)
                 {
-                    // Always calculate from PDF page count, never from a side count.
-                    // Odd page count gets one final sheet: ceil(pages / 2).
+                    // Duplex: 2 PDF pages fit on 1 physical sheet at Rs.15.
+                    // Odd page count always needs one extra sheet.
                     int sheets = (pages + 1) / 2;
                     pricePerCopy = sheets * duplexRate.Value;
                 }
-                else // Simplex: 1 PDF page = Rs.10
+                else
                 {
+                    // Simplex: every PDF page is one printed sheet at Rs.10.
                     pricePerCopy = pages * simplexRate.Value;
                 }
 
