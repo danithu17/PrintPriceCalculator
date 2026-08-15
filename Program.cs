@@ -1,332 +1,503 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace PrintCalc
 {
+    public sealed class PrintItem
+    {
+        public string Path { get; init; } = "";
+        public string Name { get; init; } = "";
+        public string Type { get; init; } = "";
+        public int Pages { get; init; }
+    }
+
     public class Form1 : Form
     {
-        private readonly CheckedListBox files = new();
-        private readonly Label totalLabel = new();
-        private readonly Label itemCountLabel = new();
-        private readonly Label statusLabel = new();
-        private readonly Label pathLabel = new();
+        private readonly ListView fileList = new();
+        private readonly TextBox searchBox = new();
+        private readonly ComboBox mode = new();
+        private readonly NumericUpDown copies = new();
         private readonly NumericUpDown simplexRate = new();
         private readonly NumericUpDown duplexRate = new();
-        private readonly NumericUpDown copies = new();
-        private readonly ComboBox mode = new();
+        private readonly Label totalLabel = new();
+        private readonly Label selectionLabel = new();
+        private readonly Label statusLabel = new();
+        private readonly Label pathLabel = new();
+        private readonly Label versionLabel = new();
         private FileSystemWatcher? watcher;
-        private readonly Dictionary<string, int> pageCounts = new(StringComparer.OrdinalIgnoreCase);
-        private string? activeTransfersPath;
+        private readonly Dictionary<string, PrintItem> items = new(StringComparer.OrdinalIgnoreCase);
+        private readonly string settingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "PrintDesk", "settings.ini");
 
         private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
             ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"
         };
 
+        private static readonly string AppVersion = "1.2.0";
+
         public Form1()
         {
-            Text = "PrintDesk • WhatsApp Print Calculator";
-            Width = 1040;
+            Text = "PrintDesk — Shop Print Manager";
+            Width = 1180;
             Height = 760;
-            MinimumSize = new Size(900, 680);
+            MinimumSize = new Size(980, 650);
             StartPosition = FormStartPosition.CenterScreen;
-            BackColor = Color.FromArgb(245, 247, 250);
+            BackColor = Color.FromArgb(244, 247, 251);
             Font = new Font("Segoe UI", 10F);
 
+            LoadSettings();
             BuildUi();
             StartWhatsAppWatcher();
+            CatchStartupErrors();
+        }
+
+        private void CatchStartupErrors()
+        {
+            // Keep startup resilient: folders may not exist yet and WhatsApp may be closed.
+            try { RefreshWhatsAppFiles(); } catch (Exception ex) { LogError(ex); }
         }
 
         private void BuildUi()
         {
-            var header = new Panel { Dock = DockStyle.Top, Height = 92, BackColor = Color.FromArgb(32, 41, 55) };
+            Controls.Clear();
+
+            var header = new Panel { Dock = DockStyle.Top, Height = 88, BackColor = Color.FromArgb(22, 31, 46) };
             var title = new Label
             {
                 Text = "PrintDesk",
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI Semibold", 22F, FontStyle.Bold),
+                Font = new Font("Segoe UI Semibold", 24F, FontStyle.Bold),
                 AutoSize = true,
-                Location = new Point(24, 12)
+                Location = new Point(22, 12)
             };
             header.Controls.Add(title);
+
             var subtitle = new Label
             {
-                Text = "WhatsApp PDF & photo print calculator",
-                ForeColor = Color.FromArgb(205, 214, 226),
+                Text = "WhatsApp PDFs & photos → fast shop billing",
+                ForeColor = Color.FromArgb(191, 204, 222),
+                Font = new Font("Segoe UI", 10F),
                 AutoSize = true,
-                Location = new Point(26, 50)
+                Location = new Point(25, 52)
             };
             header.Controls.Add(subtitle);
+
             statusLabel.Text = "● Starting…";
-            statusLabel.ForeColor = Color.FromArgb(255, 220, 120);
+            statusLabel.Font = new Font("Segoe UI Semibold", 9.5F, FontStyle.Bold);
             statusLabel.AutoSize = true;
-            statusLabel.Location = new Point(790, 34);
+            statusLabel.ForeColor = Color.FromArgb(132, 231, 166);
+            statusLabel.Location = new Point(920, 28);
             header.Controls.Add(statusLabel);
+
+            versionLabel.Text = "v" + AppVersion;
+            versionLabel.ForeColor = Color.FromArgb(144, 155, 173);
+            versionLabel.AutoSize = true;
+            versionLabel.Location = new Point(920, 51);
+            header.Controls.Add(versionLabel);
             Controls.Add(header);
 
-            var controlPanel = new Panel { Dock = DockStyle.Top, Height = 116, BackColor = Color.White };
-            AddLabel(controlPanel, "PRINT MODE", 20, 10);
+            var toolbar = new Panel { Dock = DockStyle.Top, Height = 132, BackColor = Color.White, Padding = new Padding(18, 12, 18, 10) };
+
+            AddText(toolbar, "MODE", 18, 8);
             mode.Items.AddRange(new object[] { "Simplex", "Duplex" });
             mode.SelectedIndex = 0;
             mode.DropDownStyle = ComboBoxStyle.DropDownList;
-            mode.Location = new Point(20, 34); mode.Width = 120;
-            controlPanel.Controls.Add(mode);
+            mode.Location = new Point(18, 30); mode.Width = 110;
+            toolbar.Controls.Add(mode);
 
-            AddLabel(controlPanel, "COPIES", 160, 10);
+            AddText(toolbar, "COPIES", 145, 8);
             copies.Minimum = 1; copies.Maximum = 9999; copies.Value = 1;
-            copies.Location = new Point(160, 34); copies.Width = 80;
-            controlPanel.Controls.Add(copies);
+            copies.Location = new Point(145, 30); copies.Width = 70;
+            toolbar.Controls.Add(copies);
 
-            AddLabel(controlPanel, "SIMPLEX / PAGE", 260, 10);
+            AddText(toolbar, "SIMPLEX / PAGE", 230, 8);
             simplexRate.Minimum = 0; simplexRate.Maximum = 100000; simplexRate.Value = 10;
-            simplexRate.Location = new Point(260, 34); simplexRate.Width = 90;
-            controlPanel.Controls.Add(simplexRate);
+            simplexRate.Location = new Point(230, 30); simplexRate.Width = 90;
+            toolbar.Controls.Add(simplexRate);
 
-            AddLabel(controlPanel, "DUPLEX / SHEET", 370, 10);
+            AddText(toolbar, "DUPLEX / SHEET", 335, 8);
             duplexRate.Minimum = 0; duplexRate.Maximum = 100000; duplexRate.Value = 15;
-            duplexRate.Location = new Point(370, 34); duplexRate.Width = 90;
-            controlPanel.Controls.Add(duplexRate);
+            duplexRate.Location = new Point(335, 30); duplexRate.Width = 90;
+            toolbar.Controls.Add(duplexRate);
 
-            var clearButton = MakeButton("Clear selected", 485, 32, 120, 36, Color.FromArgb(235, 239, 245), Color.FromArgb(44, 55, 72));
-            clearButton.Click += (_, _) => ClearSelected();
-            controlPanel.Controls.Add(clearButton);
+            var refresh = ButtonStyle("↻ Refresh", 440, 28, 110, Color.FromArgb(234, 239, 247), Color.FromArgb(36, 47, 64));
+            refresh.Click += (_, _) => RefreshWhatsAppFiles();
+            toolbar.Controls.Add(refresh);
 
-            var addButton = MakeButton("Add files", 618, 32, 104, 36, Color.FromArgb(45, 116, 255), Color.White);
-            addButton.Click += (_, _) => AddFilesFromDialog();
-            controlPanel.Controls.Add(addButton);
+            var add = ButtonStyle("＋ Add files", 560, 28, 112, Color.FromArgb(47, 111, 255), Color.White);
+            add.Click += (_, _) => AddFilesDialog();
+            toolbar.Controls.Add(add);
 
-            pathLabel.Text = "WhatsApp: searching for transfers folder…";
-            pathLabel.ForeColor = Color.FromArgb(107, 116, 130);
+            var open = ButtonStyle("Open", 682, 28, 82, Color.FromArgb(234, 239, 247), Color.FromArgb(36, 47, 64));
+            open.Click += (_, _) => OpenSelected();
+            toolbar.Controls.Add(open);
+
+            var print = ButtonStyle("Print", 774, 28, 82, Color.FromArgb(26, 169, 111), Color.White);
+            print.Click += (_, _) => PrintSelected();
+            toolbar.Controls.Add(print);
+
+            var remove = ButtonStyle("Remove", 866, 28, 88, Color.FromArgb(253, 235, 236), Color.FromArgb(183, 55, 67));
+            remove.Click += (_, _) => RemoveSelected();
+            toolbar.Controls.Add(remove);
+
+            AddText(toolbar, "SEARCH", 18, 72);
+            searchBox.PlaceholderText = "Search filename…";
+            searchBox.Location = new Point(75, 69); searchBox.Width = 325;
+            toolbar.Controls.Add(searchBox);
+
+            pathLabel.Text = "WhatsApp: detecting transfer folder…";
+            pathLabel.ForeColor = Color.FromArgb(112, 123, 140);
+            pathLabel.Font = new Font("Segoe UI", 8.5F);
             pathLabel.AutoEllipsis = true;
-            pathLabel.Location = new Point(20, 80); pathLabel.Width = 950;
-            controlPanel.Controls.Add(pathLabel);
-            Controls.Add(controlPanel);
+            pathLabel.Location = new Point(415, 73); pathLabel.Width = 540;
+            toolbar.Controls.Add(pathLabel);
+            Controls.Add(toolbar);
 
-            var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 18, 20, 14), BackColor = Color.FromArgb(245, 247, 250) };
-            var listCard = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(16, 14, 16, 10) };
-            var listTitle = new Label
-            {
-                Text = "Incoming files",
-                Font = new Font("Segoe UI Semibold", 13F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(36, 44, 58), AutoSize = true, Location = new Point(16, 12)
-            };
-            listCard.Controls.Add(listTitle);
-            itemCountLabel.Text = "0 files"; itemCountLabel.ForeColor = Color.FromArgb(120, 128, 140);
-            itemCountLabel.AutoSize = true; itemCountLabel.Location = new Point(160, 16);
-            listCard.Controls.Add(itemCountLabel);
+            var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(18, 14, 18, 110), BackColor = Color.FromArgb(244, 247, 251) };
+            var card = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(10, 10, 10, 8) };
 
-            files.Dock = DockStyle.Fill;
-            files.CheckOnClick = true;
-            files.HorizontalScrollbar = true;
-            files.BorderStyle = BorderStyle.None;
-            files.BackColor = Color.White;
-            files.ForeColor = Color.FromArgb(45, 55, 72);
-            files.Font = new Font("Segoe UI", 10.5F);
-            files.IntegralHeight = false;
-            files.ItemCheck += (_, _) => BeginInvoke(new Action(Recalculate));
-            listCard.Controls.Add(files);
-            body.Controls.Add(listCard); Controls.Add(body);
+            fileList.Dock = DockStyle.Fill;
+            fileList.View = View.Details;
+            fileList.FullRowSelect = true;
+            fileList.CheckBoxes = true;
+            fileList.MultiSelect = true;
+            fileList.GridLines = false;
+            fileList.BorderStyle = BorderStyle.None;
+            fileList.BackColor = Color.White;
+            fileList.Font = new Font("Segoe UI", 10.5F);
+            fileList.Columns.Add("TYPE", 86);
+            fileList.Columns.Add("FILE", 520);
+            fileList.Columns.Add("PAGES", 90);
+            fileList.Columns.Add("PRICE / COPY", 130);
+            fileList.DoubleClick += (_, _) => OpenSelected();
+            fileList.ItemChecked += (_, _) => Recalculate();
+            card.Controls.Add(fileList);
+            body.Controls.Add(card);
+            Controls.Add(body);
 
-            var footer = new Panel { Dock = DockStyle.Bottom, Height = 98, BackColor = Color.FromArgb(32, 41, 55) };
+            var bottom = new Panel { Dock = DockStyle.Bottom, Height = 102, BackColor = Color.FromArgb(22, 31, 46), Padding = new Padding(20, 10, 20, 10) };
+            selectionLabel.Text = "0 selected";
+            selectionLabel.ForeColor = Color.FromArgb(174, 188, 208);
+            selectionLabel.Location = new Point(22, 17);
+            selectionLabel.AutoSize = true;
+            bottom.Controls.Add(selectionLabel);
+
             totalLabel.Text = "TOTAL  Rs. 0.00";
             totalLabel.ForeColor = Color.White;
-            totalLabel.Font = new Font("Segoe UI Semibold", 24F, FontStyle.Bold);
-            totalLabel.AutoSize = true; totalLabel.Location = new Point(24, 26);
-            footer.Controls.Add(totalLabel);
+            totalLabel.Font = new Font("Segoe UI Semibold", 25F, FontStyle.Bold);
+            totalLabel.Location = new Point(20, 35);
+            totalLabel.AutoSize = true;
+            bottom.Controls.Add(totalLabel);
+
             var rule = new Label
             {
-                Text = "Simplex: 1 page = Rs.10   •   Duplex: odd pages get +1 blank side, then 2 pages = Rs.15",
-                ForeColor = Color.FromArgb(190, 200, 214), AutoSize = true, Location = new Point(520, 38)
+                Text = "Duplex: odd PDF page count +1 blank side → 2 pages = Rs.15",
+                ForeColor = Color.FromArgb(182, 194, 211),
+                AutoSize = true,
+                Location = new Point(710, 48)
             };
-            footer.Controls.Add(rule); Controls.Add(footer);
+            bottom.Controls.Add(rule);
+            Controls.Add(bottom);
 
-            mode.SelectedIndexChanged += (_, _) => Recalculate();
-            copies.ValueChanged += (_, _) => Recalculate();
-            simplexRate.ValueChanged += (_, _) => Recalculate();
-            duplexRate.ValueChanged += (_, _) => Recalculate();
+            mode.SelectedIndexChanged += (_, _) => { SaveSettings(); Recalculate(); };
+            copies.ValueChanged += (_, _) => { SaveSettings(); Recalculate(); };
+            simplexRate.ValueChanged += (_, _) => { SaveSettings(); Recalculate(); };
+            duplexRate.ValueChanged += (_, _) => { SaveSettings(); Recalculate(); };
+            searchBox.TextChanged += (_, _) => RebuildList();
         }
 
-        private static void AddLabel(Control parent, string text, int x, int y) => parent.Controls.Add(new Label
+        private static void AddText(Control parent, string text, int x, int y)
         {
-            Text = text, ForeColor = Color.FromArgb(115, 123, 136),
-            Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold), AutoSize = true,
-            Location = new Point(x, y)
-        });
+            parent.Controls.Add(new Label
+            {
+                Text = text, AutoSize = true,
+                ForeColor = Color.FromArgb(111, 122, 139),
+                Font = new Font("Segoe UI Semibold", 8F, FontStyle.Bold),
+                Location = new Point(x, y)
+            });
+        }
 
-        private static Button MakeButton(string text, int x, int y, int width, int height, Color back, Color fore) => new()
+        private static Button ButtonStyle(string text, int x, int y, int width, Color back, Color fore)
         {
-            Text = text, Location = new Point(x, y), Width = width, Height = height,
-            FlatStyle = FlatStyle.Flat, BackColor = back, ForeColor = fore,
-            Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold), Cursor = Cursors.Hand
-        };
+            return new Button
+            {
+                Text = text, Location = new Point(x, y), Width = width, Height = 36,
+                FlatStyle = FlatStyle.Flat, BackColor = back, ForeColor = fore,
+                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold), Cursor = Cursors.Hand,
+                FlatAppearance = { BorderSize = 0 }
+            };
+        }
 
         private void StartWhatsAppWatcher()
         {
             try
             {
-                activeTransfersPath = FindWhatsAppTransfersFolder();
-                if (string.IsNullOrWhiteSpace(activeTransfersPath))
+                string? transfers = FindWhatsAppTransfers();
+                if (transfers == null)
                 {
                     statusLabel.Text = "● WhatsApp folder not found";
-                    statusLabel.ForeColor = Color.FromArgb(255, 160, 100);
-                    pathLabel.Text = "WhatsApp: click Add files to select manually, or open WhatsApp Desktop once.";
+                    statusLabel.ForeColor = Color.FromArgb(255, 175, 95);
+                    pathLabel.Text = "WhatsApp: open WhatsApp Desktop and click Refresh";
                     return;
                 }
 
                 watcher?.Dispose();
-                watcher = new FileSystemWatcher(activeTransfersPath)
+                watcher = new FileSystemWatcher(transfers, "*.*")
                 {
-                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime,
                     IncludeSubdirectories = true,
-                    Filter = "*.*",
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime,
                     EnableRaisingEvents = true
                 };
-                watcher.Created += (_, e) => QueueAddFile(e.FullPath);
-                watcher.Renamed += (_, e) => QueueAddFile(e.FullPath);
+                watcher.Created += (_, e) => QueueAdd(e.FullPath);
+                watcher.Renamed += (_, e) => QueueAdd(e.FullPath);
 
                 statusLabel.Text = "● WhatsApp monitoring ON";
-                statusLabel.ForeColor = Color.FromArgb(125, 235, 160);
-                pathLabel.Text = "WhatsApp transfers: " + activeTransfersPath;
-
-                foreach (var file in SafeEnumerateFiles(activeTransfersPath)) QueueAddFile(file);
+                statusLabel.ForeColor = Color.FromArgb(125, 234, 169);
+                pathLabel.Text = "WhatsApp: " + transfers;
+                pathLabel.AutoEllipsis = true;
             }
             catch (Exception ex)
             {
-                statusLabel.Text = "● WhatsApp monitor unavailable";
-                statusLabel.ForeColor = Color.FromArgb(255, 160, 100);
-                pathLabel.Text = "Monitor error: " + ex.Message;
+                statusLabel.Text = "● Monitoring unavailable";
+                statusLabel.ForeColor = Color.FromArgb(255, 155, 155);
+                LogError(ex);
             }
         }
 
-        private static string? FindWhatsAppTransfersFolder()
+        private static string? FindWhatsAppTransfers()
         {
-            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string sessionsRoot = Path.Combine(local, "Packages", "5319275A.WhatsAppDesktop_cv1g1gvanyjgm", "LocalState", "sessions");
-            if (!Directory.Exists(sessionsRoot)) return null;
+            string sessions = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Packages", "5319275A.WhatsAppDesktop_cv1g1gvanyjgm", "LocalState", "sessions");
 
             try
             {
-                return Directory.EnumerateDirectories(sessionsRoot, "*", SearchOption.TopDirectoryOnly)
-                    .Select(d => Path.Combine(d, "transfers"))
-                    .Where(Directory.Exists)
-                    .OrderByDescending(Directory.GetLastWriteTimeUtc)
-                    .FirstOrDefault();
+                if (!Directory.Exists(sessions)) return null;
+                var dirs = Directory.EnumerateDirectories(sessions, "*", SearchOption.AllDirectories)
+                    .Where(d => string.Equals(Path.GetFileName(d), "transfers", StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(d => SafeCreation(d))
+                    .ToList();
+                return dirs.FirstOrDefault();
             }
             catch { return null; }
         }
 
-        private void QueueAddFile(string path)
+        private static DateTime SafeCreation(string path)
         {
-            if (IsDisposed || Disposing) return;
+            try { return Directory.GetCreationTimeUtc(path); } catch { return DateTime.MinValue; }
+        }
+
+        private void QueueAdd(string path)
+        {
+            if (IsDisposed || !IsSupported(path)) return;
             try { BeginInvoke(new Action(() => AddFile(path))); } catch { }
         }
 
-        private void AddFilesFromDialog()
+        private static bool IsSupported(string path)
+        {
+            string ext = Path.GetExtension(path);
+            return ext.Equals(".pdf", StringComparison.OrdinalIgnoreCase) || ImageExtensions.Contains(ext);
+        }
+
+        private void RefreshWhatsAppFiles()
+        {
+            try
+            {
+                StartWhatsAppWatcher();
+                string? folder = FindWhatsAppTransfers();
+                if (folder == null) return;
+                foreach (var path in Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories))
+                    if (IsSupported(path)) AddFile(path);
+                statusLabel.Text = "● WhatsApp monitoring ON";
+                statusLabel.ForeColor = Color.FromArgb(125, 234, 169);
+            }
+            catch (Exception ex)
+            {
+                LogError(ex);
+                statusLabel.Text = "● Refresh failed";
+                statusLabel.ForeColor = Color.FromArgb(255, 155, 155);
+            }
+        }
+
+        private void AddFilesDialog()
         {
             using var dialog = new OpenFileDialog
             {
-                Filter = "Print files|*.pdf;*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif|PDF|*.pdf|Images|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif",
-                Multiselect = true, Title = "Select PDF or photo files"
+                Title = "Add PDF or photo files",
+                Multiselect = true,
+                Filter = "Print files|*.pdf;*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif|PDF|*.pdf|Images|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif"
             };
             if (dialog.ShowDialog() != DialogResult.OK) return;
-            foreach (var file in dialog.FileNames) AddFile(file);
+            foreach (var path in dialog.FileNames) AddFile(path);
         }
 
         private void AddFile(string path)
         {
-            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
-            string ext = Path.GetExtension(path);
-            if (!ext.Equals(".pdf", StringComparison.OrdinalIgnoreCase) && !ImageExtensions.Contains(ext)) return;
-
+            if (!File.Exists(path) || !IsSupported(path) || items.ContainsKey(path)) return;
             try
             {
-                if (pageCounts.ContainsKey(path)) return;
+                string ext = Path.GetExtension(path);
                 int pages = ImageExtensions.Contains(ext) ? 1 : CountPdfPages(path);
-                pageCounts[path] = pages;
-                string type = ImageExtensions.Contains(ext) ? "PHOTO" : "PDF";
-                string text = $"{type}   {Path.GetFileName(path)}   •   {pages} page" + (pages == 1 ? "" : "s");
-                files.Items.Insert(0, text); files.SetItemChecked(0, true); Recalculate();
+                items[path] = new PrintItem { Path = path, Name = Path.GetFileName(path), Type = ImageExtensions.Contains(ext) ? "PHOTO" : "PDF", Pages = pages };
+                RebuildList(selectPath: path);
             }
-            catch { }
+            catch (Exception ex) { LogError(ex); }
         }
 
-        private void ClearSelected()
+        private void RebuildList(string? selectPath = null)
         {
-            for (int i = files.Items.Count - 1; i >= 0; i--)
+            var checkedPaths = fileList.Items.Cast<ListViewItem>()
+                .Where(x => x.Checked && x.Tag is string)
+                .Select(x => (string)x.Tag!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            fileList.BeginUpdate();
+            fileList.Items.Clear();
+            string query = searchBox.Text.Trim();
+            foreach (var item in items.Values.OrderByDescending(x => SafeCreation(x.Path)))
             {
-                if (!files.GetItemChecked(i)) continue;
-                string display = files.Items[i]?.ToString() ?? "";
-                var match = pageCounts.Keys.FirstOrDefault(k => display.Contains(Path.GetFileName(k), StringComparison.OrdinalIgnoreCase));
-                if (match != null) pageCounts.Remove(match);
-                files.Items.RemoveAt(i);
+                if (query.Length > 0 && !item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)) continue;
+                decimal price = PriceFor(item.Pages);
+                var row = new ListViewItem(item.Type);
+                row.SubItems.Add(item.Name);
+                row.SubItems.Add(item.Pages.ToString());
+                row.SubItems.Add($"Rs. {price:N2}");
+                row.Tag = item.Path;
+                row.Checked = checkedPaths.Contains(item.Path) || string.Equals(selectPath, item.Path, StringComparison.OrdinalIgnoreCase);
+                fileList.Items.Add(row);
             }
+            fileList.EndUpdate();
             Recalculate();
+        }
+
+        private decimal PriceFor(int pages)
+        {
+            if (mode.SelectedIndex == 1)
+            {
+                int adjusted = pages % 2 == 0 ? pages : pages + 1;
+                return (adjusted / 2m) * duplexRate.Value;
+            }
+            return pages * simplexRate.Value;
         }
 
         private void Recalculate()
         {
-            decimal total = 0; int selected = 0; int i = 0;
-            foreach (var item in files.Items.Cast<object>())
+            decimal total = 0;
+            int selected = 0;
+            foreach (ListViewItem row in fileList.Items)
             {
-                if (!files.GetItemChecked(i++)) continue;
+                if (!row.Checked || row.Tag is not string path || !items.TryGetValue(path, out var item)) continue;
                 selected++;
-                string display = item?.ToString() ?? "";
-                var key = pageCounts.Keys.FirstOrDefault(k => display.Contains(Path.GetFileName(k), StringComparison.OrdinalIgnoreCase));
-                if (key == null) continue;
-                int pages = pageCounts[key];
-                decimal pricePerCopy;
-                if (mode.SelectedIndex == 1)
-                {
-                    int adjustedPages = pages % 2 == 0 ? pages : pages + 1;
-                    pricePerCopy = (adjustedPages / 2) * duplexRate.Value;
-                }
-                else pricePerCopy = pages * simplexRate.Value;
-                total += pricePerCopy * copies.Value;
+                total += PriceFor(item.Pages) * copies.Value;
             }
-            itemCountLabel.Text = $"{selected} selected • {files.Items.Count} total";
+            selectionLabel.Text = $"{selected} selected • {items.Count} files loaded";
             totalLabel.Text = $"TOTAL  Rs. {total:N2}";
         }
 
-        private static IEnumerable<string> SafeEnumerateFiles(string root)
+        private IEnumerable<string> SelectedPaths() => fileList.Items.Cast<ListViewItem>()
+            .Where(x => x.Checked && x.Tag is string)
+            .Select(x => (string)x.Tag!);
+
+        private void OpenSelected()
+        {
+            string? path = SelectedPaths().FirstOrDefault();
+            if (path == null) return;
+            try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
+            catch (Exception ex) { LogError(ex); MessageBox.Show(this, "Could not open the selected file.", "PrintDesk", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        }
+
+        private void PrintSelected()
+        {
+            foreach (string path in SelectedPaths())
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = path,
+                        Verb = "print",
+                        UseShellExecute = true,
+                        CreateNoWindow = true,
+                        WindowStyle = ProcessWindowStyle.Hidden
+                    });
+                }
+                catch (Exception ex) { LogError(ex); }
+            }
+        }
+
+        private void RemoveSelected()
+        {
+            foreach (string path in SelectedPaths().ToList()) items.Remove(path);
+            RebuildList();
+        }
+
+        private int CountPdfPages(string path)
+        {
+            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            string text = reader.ReadToEnd();
+            return Math.Max(1, Regex.Matches(text, @"/Type\s*/Page\b").Count);
+        }
+
+        private void SaveSettings()
         {
             try
             {
-                return Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories)
-                    .Where(IsSupportedFile)
-                    .OrderByDescending(File.GetCreationTimeUtc)
-                    .Take(250)
-                    .ToArray();
+                Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
+                var sb = new StringBuilder();
+                sb.AppendLine($"Mode={(mode.SelectedIndex == 1 ? "Duplex" : "Simplex")}");
+                sb.AppendLine($"Copies={copies.Value}");
+                sb.AppendLine($"Simplex={simplexRate.Value}");
+                sb.AppendLine($"Duplex={duplexRate.Value}");
+                File.WriteAllText(settingsPath, sb.ToString());
             }
-            catch { return Array.Empty<string>(); }
+            catch { }
         }
 
-        private static bool IsSupportedFile(string file)
+        private void LoadSettings()
         {
-            string ext = Path.GetExtension(file);
-            return ext.Equals(".pdf", StringComparison.OrdinalIgnoreCase) || ImageExtensions.Contains(ext);
+            try
+            {
+                if (!File.Exists(settingsPath)) return;
+                foreach (string line in File.ReadAllLines(settingsPath))
+                {
+                    var parts = line.Split('=', 2);
+                    if (parts.Length != 2) continue;
+                    if (parts[0] == "Mode") mode.SelectedIndex = parts[1] == "Duplex" ? 1 : 0;
+                    if (parts[0] == "Copies" && decimal.TryParse(parts[1], out var c)) copies.Value = Math.Min(copies.Maximum, Math.Max(copies.Minimum, c));
+                    if (parts[0] == "Simplex" && decimal.TryParse(parts[1], out var s)) simplexRate.Value = Math.Min(simplexRate.Maximum, Math.Max(simplexRate.Minimum, s));
+                    if (parts[0] == "Duplex" && decimal.TryParse(parts[1], out var d)) duplexRate.Value = Math.Min(duplexRate.Maximum, Math.Max(duplexRate.Minimum, d));
+                }
+            }
+            catch { }
         }
 
-        private static int CountPdfPages(string path)
+        private void LogError(Exception ex)
         {
-            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            return CountPdfPages(stream);
+            try
+            {
+                string log = Path.Combine(Path.GetTempPath(), "PrintDesk-error.log");
+                File.AppendAllText(log, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {ex}\r\n");
+            }
+            catch { }
         }
 
-        private static int CountPdfPages(Stream stream)
+        private static DateTime SafeCreation(string path)
         {
-            using var reader = new StreamReader(stream);
-            string text = reader.ReadToEnd();
-            int count = Regex.Matches(text, @"/Type\s*/Page\b").Count;
-            return Math.Max(1, count);
+            try { return File.GetCreationTimeUtc(path); } catch { return DateTime.MinValue; }
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            SaveSettings();
             watcher?.Dispose();
             base.OnFormClosed(e);
         }
@@ -334,28 +505,25 @@ namespace PrintCalc
         [STAThread]
         public static void Main()
         {
-            Application.ThreadException += (_, e) => ShowFatal(e.Exception);
-            AppDomain.CurrentDomain.UnhandledException += (_, e) => ShowFatal(e.ExceptionObject as Exception ?? new Exception("Unknown error"));
             try
             {
                 ApplicationConfiguration.Initialize();
+                Application.ThreadException += (_, e) =>
+                {
+                    try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "PrintDesk-error.log"), $"{DateTime.Now}: {e.Exception}\r\n"); } catch { }
+                    MessageBox.Show("PrintDesk encountered an error. Details were saved to %TEMP%\\PrintDesk-error.log.", "PrintDesk", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                };
+                AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                {
+                    try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "PrintDesk-error.log"), $"{DateTime.Now}: {e.ExceptionObject}\r\n"); } catch { }
+                };
                 Application.Run(new Form1());
             }
             catch (Exception ex)
             {
-                ShowFatal(ex);
+                try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "PrintDesk-error.log"), ex.ToString()); } catch { }
+                MessageBox.Show("PrintDesk could not start. See %TEMP%\\PrintDesk-error.log", "PrintDesk", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-        }
-
-        private static void ShowFatal(Exception ex)
-        {
-            try
-            {
-                string log = Path.Combine(Path.GetTempPath(), "PrintDesk-error.log");
-                File.WriteAllText(log, DateTime.Now + Environment.NewLine + ex + Environment.NewLine);
-                MessageBox.Show($"PrintDesk could not start.\n\n{ex.Message}\n\nLog: {log}", "PrintDesk Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            catch { }
         }
     }
 }
