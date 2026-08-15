@@ -68,7 +68,7 @@ namespace PrintCalc
 
             var help = new Label
             {
-                Text = "Duplex rule: 1-2 pages = Rs.15, 3-4 pages = Rs.30, 5-6 pages = Rs.45",
+                Text = "Duplex: odd page count +1, then count every 2 pages as 1 sheet",
                 AutoSize = true,
                 Padding = new Padding(10, 8, 0, 0)
             };
@@ -181,9 +181,10 @@ namespace PrintCalc
 
                 if (mode.SelectedIndex == 1)
                 {
-                    // Duplex: 2 PDF pages fit on 1 physical sheet at Rs.15.
-                    // Odd page count always needs one extra sheet.
-                    int sheets = (pages + 1) / 2;
+                    // Duplex rule: if page count is odd, add one page for pricing.
+                    // Then every 2 pages count as 1 sheet at the duplex rate.
+                    int billablePages = (pages % 2 == 0) ? pages : pages + 1;
+                    int sheets = billablePages / 2;
                     pricePerCopy = sheets * duplexRate.Value;
                 }
                 else
