@@ -22,7 +22,7 @@ jobs:
       - name: Upload portable EXE
         uses: actions/upload-artifact@v4
         with:
-          name: PrintCalculator-EXE
+          name: PrintCalculator-EXE-v1.2.1
           path: bin/Release/net8.0-windows/win-x64/publish/PrintCalc.exe
           if-no-files-found: error
 
@@ -34,12 +34,12 @@ jobs:
         shell: powershell
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc /DAppVersion=1.2.0 installer\PrintDesk.iss
+          & $iscc /DAppVersion=1.2.1 installer\PrintDesk.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows Setup
         uses: actions/upload-artifact@v4
         with:
-          name: PrintDesk-Setup
-          path: installer-output\PrintDesk-Setup-v1.2.0.exe
+          name: PrintDesk-Setup-v1.2.1
+          path: installer-output\PrintDesk-Setup-v1.2.1.exe
           if-no-files-found: error
