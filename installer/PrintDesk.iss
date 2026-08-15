@@ -13,7 +13,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\PrintDesk
 DefaultGroupName=PrintDesk
 DisableProgramGroupPage=yes
-OutputDir=installer-output
+OutputDir=..\installer-output
 OutputBaseFilename=PrintDesk-Setup-v{#AppVersion}
 Compression=lzma
 SolidCompression=yes
@@ -23,7 +23,7 @@ PrivilegesRequired=admin
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Files]
-Source: "bin\Release\net8.0-windows\win-x64\publish\PrintCalc.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\bin\Release\net8.0-windows\win-x64\publish\PrintCalc.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autodesktop}\PrintDesk"; Filename: "{app}\{#MyAppExeName}"
