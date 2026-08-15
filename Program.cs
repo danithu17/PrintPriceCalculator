@@ -18,7 +18,7 @@ namespace PrintCalc
 
         public Form1()
         {
-            Text = "Shop Print Price Calculator";
+            Text = "Shop Print Price Calculator - PDF Pages";
             Width = 780;
             Height = 720;
             StartPosition = FormStartPosition.CenterScreen;
@@ -55,7 +55,7 @@ namespace PrintCalc
             simplexRate.Width = 70;
             top.Controls.Add(simplexRate);
 
-            top.Controls.Add(new Label { Text = "Duplex / Sheet Rs.", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
+            top.Controls.Add(new Label { Text = "Duplex / 2 Pages Rs.", AutoSize = true, Padding = new Padding(10, 8, 0, 0) });
             duplexRate.Minimum = 0;
             duplexRate.Maximum = 100000;
             duplexRate.Value = 15;
@@ -171,12 +171,14 @@ namespace PrintCalc
                 int pages = int.Parse(match.Groups[1].Value);
                 decimal pricePerCopy;
 
-                if (mode.SelectedIndex == 1) // Duplex: 2 pages = 1 sheet = Rs.15
+                if (mode.SelectedIndex == 1) // Duplex: 2 PDF pages = 1 sheet = Rs.15
                 {
-                    int sheets = (pages + 1) / 2; // ceil(pages / 2)
+                    // Always calculate from PDF page count, never from a side count.
+                    // Odd page count gets one final sheet: ceil(pages / 2).
+                    int sheets = (pages + 1) / 2;
                     pricePerCopy = sheets * duplexRate.Value;
                 }
-                else // Simplex: 1 page = Rs.10
+                else // Simplex: 1 PDF page = Rs.10
                 {
                     pricePerCopy = pages * simplexRate.Value;
                 }
